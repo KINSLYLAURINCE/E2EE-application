@@ -1,13 +1,4 @@
-import os
 
-# DEBUG: Print all environment variables
-print("="*50)
-print("ENVIRONMENT VARIABLES:")
-print(f"ALLOWED_HOSTS env: {os.environ.get('ALLOWED_HOSTS')}")
-print(f"DJANGO_SECRET_KEY exists: {'Yes' if os.environ.get('DJANGO_SECRET_KEY') else 'No'}")
-print("="*50)
-
-# Your existing settings...
 
 import os
 import dj_database_url

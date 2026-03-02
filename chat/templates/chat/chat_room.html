@@ -16,7 +16,7 @@
         <!-- Messages loaded here -->
     </div>
 
-    <div style="padding: 1rem; border-top: 1px solid var(--border); background: var(--surface);">
+    <div class="chat-input-area" style="padding: 1rem; border-top: 1px solid var(--border); background: var(--surface);">
         <div style="display: flex; gap: 0.5rem; align-items: center;">
             <input type="text" id="message-input" placeholder="Secure message..." style="margin-bottom: 0; flex: 1;">
             <button id="send-btn" style="padding: 0.8rem 1.2rem; min-width: 50px;">
@@ -29,7 +29,44 @@
 <style>
     @media (max-width: 600px) {
         .hide-mobile { display: none; }
-        .card { height: 90vh !important; }
+        
+        /* Ensure the body doesn't scroll when we're in a chat room */
+        body {
+            overflow: hidden;
+            height: 100dvh;
+        }
+
+        .container {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
+            height: calc(100dvh - 64px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card { 
+            height: 100% !important; 
+            border-radius: 0 !important;
+            border: none !important;
+            margin: 0 !important;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-input-area {
+            position: sticky;
+            bottom: 0;
+            width: 100%;
+            z-index: 100;
+        }
+
+        #chat-box {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
     }
 </style>
 
