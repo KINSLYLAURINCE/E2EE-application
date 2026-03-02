@@ -278,8 +278,6 @@
     </div>
 
     <script>
-        const DB_NAME = "E2EEDatabase_v3";
-        const STORE_NAME = "Keys";
         const ALGO = {
             name: "RSA-OAEP",
             modulusLength: 2048,
@@ -288,39 +286,65 @@
         };
 
         const USERNAME = "{{ user.username }}";
+        const KEY_PREFIX = `chat_keys_${USERNAME}_`;
 
-        async function initDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, 1);
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        db.createObjectStore(STORE_NAME);
-                    }
-                };
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        // Helper to store in localStorage
+        function storeLocal(name, value) {
+            localStorage.setItem(KEY_PREFIX + name, value);
         }
 
-        async function storeKey(name, key) {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, "readwrite");
-                tx.objectStore(STORE_NAME).put(key, USERNAME + "_" + name);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            });
+        function getLocal(name) {
+            return localStorage.getItem(KEY_PREFIX + name);
         }
 
-        async function getKey(name) {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, "readonly");
-                const request = tx.objectStore(STORE_NAME).get(USERNAME + "_" + name);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        async function deriveMasterKey(passphrase, salt) {
+            const encoder = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                "raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"]
+            );
+            return await crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: encoder.encode(salt),
+                    iterations: 100000,
+                    hash: "SHA-256"
+                },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptPrivateKey(privateKey, masterKey) {
+            const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encrypted = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                masterKey,
+                exported
+            );
+            const combined = new Uint8Array(iv.length + encrypted.byteLength);
+            combined.set(iv);
+            combined.set(new Uint8Array(encrypted), iv.length);
+            return btoa(String.fromCharCode(...combined));
+        }
+
+        async function decryptPrivateKey(encryptedBase64, masterKey) {
+            try {
+                const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+                const iv = combined.slice(0, 12);
+                const data = combined.slice(12);
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
+                    masterKey,
+                    data
+                );
+                return await crypto.subtle.importKey("pkcs8", decrypted, ALGO, true, ["decrypt"]);
+            } catch (e) {
+                console.error("Decryption failed", e);
+                return null;
+            }
         }
 
         async function exportPublicKey(key) {
@@ -333,24 +357,88 @@
             return await crypto.subtle.importKey("spki", binaryDer, ALGO, true, ["encrypt"]);
         }
 
+        // Global variables to hold active keys
+        let MY_PUBLIC_KEY = null;
+        let MY_PRIVATE_KEY = null;
+
         async function ensureKeys() {
             if (!{{ user.is_authenticated|yesno:"true,false" }}) return;
-            
-            let publicKey = await getKey("publicKey");
-            let privateKey = await getKey("privateKey");
 
-            if (!publicKey || !privateKey) {
-                console.log("Generating keys...");
-                const keyPair = await crypto.subtle.generateKey(ALGO, true, ["encrypt", "decrypt"]);
-                await storeKey("publicKey", keyPair.publicKey);
-                await storeKey("privateKey", keyPair.privateKey);
+            const localPub = getLocal("publicKey");
+            const localPriv = getLocal("privateKey");
+
+            if (localPub && localPriv) {
+                MY_PUBLIC_KEY = await importPublicKey(localPub);
+                const privDer = Uint8Array.from(atob(localPriv), c => c.charCodeAt(0));
+                MY_PRIVATE_KEY = await crypto.subtle.importKey("pkcs8", privDer, ALGO, true, ["decrypt"]);
                 
-                const spki = await exportPublicKey(keyPair.publicKey);
+                // Still ping server to make sure it has our public key (Render SQLite fix)
                 await fetch("{% url 'chat:save_public_key' %}", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}" },
-                    body: JSON.stringify({ public_key: spki })
+                    body: JSON.stringify({ public_key: localPub })
                 });
+                return;
+            }
+
+            // Try to fetch from server
+            const response = await fetch("{% url 'chat:get_my_keys' %}");
+            if (response.ok) {
+                const data = await response.json();
+                if (data.encrypted_private_key && data.salt) {
+                    const passphrase = prompt("Keys found on server. Enter your Chat Passphrase to unlock:");
+                    if (!passphrase) return;
+
+                    const masterKey = await deriveMasterKey(passphrase, data.salt);
+                    const privKey = await decryptPrivateKey(data.encrypted_private_key, masterKey);
+                    
+                    if (privKey) {
+                        MY_PRIVATE_KEY = privKey;
+                        MY_PUBLIC_KEY = await importPublicKey(data.public_key);
+                        
+                        const privExported = await crypto.subtle.exportKey("pkcs8", privKey);
+                        storeLocal("privateKey", btoa(String.fromCharCode(...new Uint8Array(privExported))));
+                        storeLocal("publicKey", data.public_key);
+                        alert("Keys recovered successfully!");
+                        location.reload();
+                        return;
+                    } else {
+                        alert("Incorrect passphrase. Please try again.");
+                        return ensureKeys();
+                    }
+                }
+            }
+
+            // No keys anywhere, generate new ones
+            if (confirm("No encryption keys found. Generate new ones? This will require a passphrase.")) {
+                const passphrase = prompt("Set a new Chat Passphrase (DO NOT LOSE THIS):");
+                if (!passphrase) return;
+
+                console.log("Generating keys...");
+                const keyPair = await crypto.subtle.generateKey(ALGO, true, ["encrypt", "decrypt"]);
+                const salt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+                const masterKey = await deriveMasterKey(passphrase, salt);
+                
+                const encryptedPriv = await encryptPrivateKey(keyPair.privateKey, masterKey);
+                const pubBase64 = await exportPublicKey(keyPair.publicKey);
+
+                await fetch("{% url 'chat:save_public_key' %}", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}" },
+                    body: JSON.stringify({
+                        public_key: pubBase64,
+                        encrypted_private_key: encryptedPriv,
+                        salt: salt
+                    })
+                });
+
+                const privExported = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+                storeLocal("privateKey", btoa(String.fromCharCode(...new Uint8Array(privExported))));
+                storeLocal("publicKey", pubBase64);
+                
+                MY_PUBLIC_KEY = keyPair.publicKey;
+                MY_PRIVATE_KEY = keyPair.privateKey;
+                alert("New keys generated and backed up to server.");
             }
         }
 
@@ -362,11 +450,10 @@
         }
 
         async function decryptMessage(encryptedBase64) {
-            const privateKey = await getKey("privateKey");
-            if (!privateKey) return "[Key missing]";
+            if (!MY_PRIVATE_KEY) return "[Key Locked]";
             try {
                 const encrypted = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-                const decrypted = await crypto.subtle.decrypt(ALGO, privateKey, encrypted);
+                const decrypted = await crypto.subtle.decrypt(ALGO, MY_PRIVATE_KEY, encrypted);
                 return new TextDecoder().decode(decrypted);
             } catch (e) {
                 return "[Decryption failed]";

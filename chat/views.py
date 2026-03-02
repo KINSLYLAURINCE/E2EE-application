@@ -52,10 +52,23 @@ def chat_room(request, recipient_id):
 def save_public_key(request):
     if request.method == 'POST':
         data = json.loads(request.body)
-        public_key_str = data.get('public_key')
-        UserPublicKey.objects.update_or_create(user=request.user, defaults={'public_key': public_key_str})
+        defaults = {}
+        if 'public_key' in data: defaults['public_key'] = data['public_key']
+        if 'encrypted_private_key' in data: defaults['encrypted_private_key'] = data['encrypted_private_key']
+        if 'salt' in data: defaults['salt'] = data['salt']
+        
+        UserPublicKey.objects.update_or_create(user=request.user, defaults=defaults)
         return JsonResponse({'status': 'ok'})
     return JsonResponse({'status': 'error'}, status=400)
+
+@login_required
+def get_my_keys(request):
+    pk_info = get_object_or_404(UserPublicKey, user=request.user)
+    return JsonResponse({
+        'public_key': pk_info.public_key,
+        'encrypted_private_key': pk_info.encrypted_private_key,
+        'salt': pk_info.salt
+    })
 
 @login_required
 def get_public_key(request, user_id):

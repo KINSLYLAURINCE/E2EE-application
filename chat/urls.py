@@ -11,6 +11,7 @@ urlpatterns = [
     path('users/', views.user_list, name='user_list'),
     path('chat/<int:recipient_id>/', views.chat_room, name='chat_room'),
     path('api/save_public_key/', views.save_public_key, name='save_public_key'),
+    path('api/get_my_keys/', views.get_my_keys, name='get_my_keys'),
     path('api/get_public_key/<int:user_id>/', views.get_public_key, name='get_public_key'),
     path('api/send_message/', views.send_message, name='send_message'),
     path('api/get_messages/<int:other_user_id>/', views.get_messages, name='get_messages'),

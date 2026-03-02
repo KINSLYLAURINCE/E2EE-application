@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 class UserPublicKey(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='public_key_info')
     public_key = models.TextField()
+    encrypted_private_key = models.TextField(null=True, blank=True)
+    salt = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.username}'s public key"
