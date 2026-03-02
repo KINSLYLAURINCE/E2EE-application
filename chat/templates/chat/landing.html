@@ -1,0 +1,77 @@
+{% extends 'chat/base.html' %}
+{% block title %}Welcome | E2EE Chat{% endblock %}
+{% block content %}
+<div class="landing-hero">
+    <div class="status-badge">
+        NOW POWERED BY RSA-2048 & AES-GCM
+    </div>
+    
+    <h1 class="hero-title">
+        Private Conversations,<br>Decentralized Trust.
+    </h1>
+    
+    <p class="hero-subtitle">
+        Experience the next generation of secure messaging. Your keys, your data, your privacy—guaranteed by mathematics.
+    </p>
+    
+    <div class="hero-actions">
+        {% if not user.is_authenticated %}
+            <a href="{% url 'chat:register' %}" class="btn hero-btn">Get Started Free</a>
+            <a href="{% url 'chat:login' %}" class="btn secondary hero-btn">Sign In</a>
+        {% else %}
+            <a href="{% url 'chat:user_list' %}" class="btn hero-btn">Open Dashboard</a>
+        {% endif %}
+    </div>
+
+    <div class="feature-grid">
+        <div class="card feature-card">
+            <div class="feature-icon">🔒</div>
+            <h3 class="feature-title" style="color: var(--primary);">End-to-End Encryption</h3>
+            <p class="feature-text">Messages are encrypted on your device before they ever touch our servers. Only you and your recipient hold the keys.</p>
+        </div>
+        
+        <div class="card feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3 class="feature-title" style="color: var(--accent);">Web Crypto API</h3>
+            <p class="feature-text">Leveraging industry-standard RSA-OAEP for key exchange and SHA-256 for hashing. Native browser security at its peak.</p>
+        </div>
+        
+        <div class="card feature-card">
+            <div class="feature-icon">🛡️</div>
+            <h3 class="feature-title" style="color: var(--primary);">Zero-Knowledge</h3>
+            <p class="feature-text">We have zero access to your private keys or plain-text messages. Our architecture ensures complete plausible deniability.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    .landing-hero { text-align: center; padding: 4rem 1rem; }
+    .status-badge { 
+        display: inline-block; padding: 0.8rem 1.5rem; background: var(--surface2); 
+        border: 1px solid var(--primary-dim); border-radius: 50px; color: var(--primary); 
+        font-size: 0.8rem; font-weight: 600; margin-bottom: 2rem; box-shadow: 0 0 20px rgba(0, 255, 170, 0.1); 
+    }
+    .hero-title { 
+        font-size: 4rem; line-height: 1.1; margin-bottom: 1.5rem; 
+        background: linear-gradient(to bottom right, #fff 30%, var(--text-muted)); 
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+    }
+    .hero-subtitle { font-size: 1.25rem; color: var(--text-muted); max-width: 600px; margin: 0 auto 3rem; }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; margin-bottom: 5rem; }
+    .hero-btn { padding: 1rem 2.5rem; font-size: 1.1rem; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; text-align: left; }
+    .feature-card { padding: 2.5rem; }
+    .feature-icon { font-size: 2rem; margin-bottom: 1rem; }
+    .feature-title { margin-bottom: 0.8rem; }
+    .feature-text { color: var(--text-muted); font-size: 0.95rem; }
+
+    @media (max-width: 600px) {
+        .landing-hero { padding: 2rem 0.5rem; }
+        .hero-title { font-size: 2.5rem; }
+        .hero-subtitle { font-size: 1rem; margin-bottom: 2rem; }
+        .hero-actions { flex-direction: column; align-items: stretch; margin-bottom: 3rem; }
+        .hero-btn { width: 100%; }
+        .feature-card { padding: 1.5rem; }
+    }
+</style>
+{% endblock %}

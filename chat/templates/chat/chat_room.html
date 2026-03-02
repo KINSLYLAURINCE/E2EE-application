@@ -1,0 +1,184 @@
+{% extends 'chat/base.html' %}
+{% block title %}Secure Link: {{ recipient.username }}{% endblock %}
+{% block content %}
+<div class="card" style="display: flex; flex-direction: column; height: 85vh; padding: 0; overflow: hidden;">
+    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface);">
+        <div style="display: flex; align-items: center; gap: 0.8rem;">
+            <div style="width: 10px; height: 10px; background: var(--primary); border-radius: 50%; box-shadow: 0 0 10px var(--primary);"></div>
+            <h3 style="margin: 0; font-size: 1rem; letter-spacing: 0.05em;">{{ recipient.username|upper }}</h3>
+        </div>
+        <a href="{% url 'chat:user_list' %}" style="font-size: 0.8rem; color: var(--text-muted); text-decoration: none; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="fas fa-times"></i> <span class="hide-mobile">TERMINATE</span>
+        </a>
+    </div>
+
+    <div id="chat-box" class="chat-box" style="flex: 1; margin: 0; border: none; border-radius: 0; background: transparent;">
+        <!-- Messages loaded here -->
+    </div>
+
+    <div style="padding: 1rem; border-top: 1px solid var(--border); background: var(--surface);">
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" id="message-input" placeholder="Secure message..." style="margin-bottom: 0; flex: 1;">
+            <button id="send-btn" style="padding: 0.8rem 1.2rem; min-width: 50px;">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    @media (max-width: 600px) {
+        .hide-mobile { display: none; }
+        .card { height: 90vh !important; }
+    }
+</style>
+
+<script>
+    const recipientId = {{ recipient.id }};
+    const currentUsername = "{{ user.username }}";
+    let recipientPublicKey = null;
+    let knownMessageIds = new Set();
+
+    async function loadRecipientPublicKey() {
+        const response = await fetch(`{% url 'chat:get_public_key' recipient.id %}`);
+        if (response.ok) {
+            const data = await response.json();
+            recipientPublicKey = data.public_key;
+        } else {
+            console.error("No public key found for recipient.");
+        }
+    }
+
+    async function fetchMessages() {
+        const response = await fetch(`{% url 'chat:get_messages' recipient.id %}`);
+        const data = await response.json();
+        const chatBox = document.getElementById("chat-box");
+        
+        let shouldScroll = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 50;
+        let anyNew = false;
+
+        for (const msg of data.messages) {
+            const msgId = `msg-${msg.id}`;
+            let existingMsg = document.getElementById(msgId);
+            
+            if (!existingMsg) {
+                const decrypted = await decryptMessage(msg.encrypted_content);
+                const div = document.createElement("div");
+                div.id = msgId;
+                div.className = `message ${msg.sender === currentUsername ? 'sent' : 'received'}`;
+                
+                div.innerHTML = `
+                    <div class="content">${decrypted}</div>
+                    <div class="msg-meta">
+                        <span>${msg.timestamp} ${msg.is_edited ? '<i class="fas fa-pen-nib" style="font-size:0.6rem; margin-left:4px;"></i>' : ''}</span>
+                        ${msg.sender === currentUsername ? `
+                            <div class="msg-actions">
+                                <i class="fas fa-edit action-icon" onclick="editMessage(${msg.id}, \`${btoa(decrypted)}\`)" title="Edit"></i>
+                                <i class="fas fa-trash action-icon" style="color: var(--danger)" onclick="deleteMessage(${msg.id})" title="Delete"></i>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                chatBox.appendChild(div);
+                knownMessageIds.add(msg.id);
+                anyNew = true;
+            } else if (msg.is_edited && !existingMsg.dataset.edited) {
+                const decrypted = await decryptMessage(msg.encrypted_content);
+                existingMsg.querySelector('.content').innerText = decrypted;
+                existingMsg.querySelector('.msg-meta span').innerHTML = `${msg.timestamp} <i class="fas fa-pen-nib" style="font-size:0.6rem; margin-left:4px;"></i>`;
+                existingMsg.dataset.edited = "true";
+            }
+        }
+
+        const currentIds = new Set(data.messages.map(m => m.id));
+        knownMessageIds.forEach(id => {
+            if (!currentIds.has(id)) {
+                const node = document.getElementById(`msg-${id}`);
+                if (node) node.remove();
+                knownMessageIds.delete(id);
+            }
+        });
+
+        if (anyNew && shouldScroll) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    }
+
+    const sendMessage = async () => {
+        const input = document.getElementById("message-input");
+        const text = input.value;
+        if (!text || !recipientPublicKey) return;
+
+        input.disabled = true;
+        
+        try {
+            const encryptedForRecipient = await encryptMessage(text, recipientPublicKey);
+            const myPublicKeyResp = await fetch(`{% url 'chat:get_public_key' user.id %}`);
+            const myPublicKeyData = await myPublicKeyResp.json();
+            const encryptedForSender = await encryptMessage(text, myPublicKeyData.public_key);
+            
+            await fetch("{% url 'chat:send_message' %}", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}" },
+                body: JSON.stringify({
+                    recipient_id: recipientId,
+                    encrypted_for_recipient: encryptedForRecipient,
+                    encrypted_for_sender: encryptedForSender
+                })
+            });
+
+            input.value = "";
+            fetchMessages();
+        } catch (e) {
+            console.error("Transmission failed", e);
+        } finally {
+            input.disabled = false;
+            input.focus();
+        }
+    };
+
+    document.getElementById("send-btn").onclick = sendMessage;
+    
+    document.getElementById("message-input").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            sendMessage();
+        }
+    });
+
+    async function deleteMessage(messageId) {
+        if (confirm("VOID this transmission?")) {
+            await fetch(`/api/delete_message/${messageId}/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            fetchMessages();
+        }
+    }
+
+    async function editMessage(messageId, oldTextBase64) {
+        const oldText = atob(oldTextBase64);
+        const newText = prompt("OVERWRITE transmission:", oldText);
+        if (newText === null || newText === oldText) return;
+
+        const encryptedForRecipient = await encryptMessage(newText, recipientPublicKey);
+        const myPublicKeyResp = await fetch(`{% url 'chat:get_public_key' user.id %}`);
+        const myPublicKeyData = await myPublicKeyResp.json();
+        const encryptedForSender = await encryptMessage(newText, myPublicKeyData.public_key);
+
+        await fetch(`/api/edit_message/${messageId}/`, {
+            method: 'POST',
+            headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}" },
+            body: JSON.stringify({
+                encrypted_for_recipient: encryptedForRecipient,
+                encrypted_for_sender: encryptedForSender
+            })
+        });
+        fetchMessages();
+    }
+
+    loadRecipientPublicKey().then(() => {
+        fetchMessages();
+        setInterval(fetchMessages, 2000);
+    });
+</script>
+{% endblock %}

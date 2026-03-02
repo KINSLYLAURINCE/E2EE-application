@@ -1,0 +1,17 @@
+{% extends 'chat/base.html' %}
+{% block title %}Node Registration | E2EE Chat{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 450px; margin: 4rem auto; border-top: 4px solid var(--accent);">
+    <h2 style="text-align: center; margin-bottom: 2rem; letter-spacing: 0.1em;">REGISTER NODE</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            {{ form.as_p }}
+        </div>
+        <button type="submit" style="width: 100%; margin-top: 1rem; padding: 1rem; background: var(--accent); color: white;">GENERATE CREDENTIALS</button>
+    </form>
+    <div style="margin-top: 2rem; text-align: center; font-size: 0.9rem; color: var(--text-muted);">
+        Already registered? <a href="{% url 'chat:login' %}" style="color: var(--accent); text-decoration: none; font-weight: 600;">Access Console</a>
+    </div>
+</div>
+{% endblock %}
